@@ -54,7 +54,9 @@ def build_parser() -> argparse.ArgumentParser:
     dl_p = sub.add_parser("download", help="下载指定 BV 号的视频/音频")
     dl_p.add_argument("bvid", help="BV 号，或包含 BV 号的完整视频链接")
     dl_p.add_argument("-o", "--output", default=".", help="输出目录，默认当前目录")
-    dl_p.add_argument("-p", "--page", type=int, default=1, help="分P序号（从1开始），默认第1P")
+    page_group = dl_p.add_mutually_exclusive_group()
+    page_group.add_argument("-p", "--page", type=int, default=1, help="分P序号（从1开始），默认第1P")
+    page_group.add_argument("-a", "--all-pages", action="store_true", help="下载该视频的所有分P")
     dl_p.add_argument(
         "-q", "--quality", type=int, default=None,
         help="指定画质 qn 值（如 80=1080P，64=720P），默认自动选最高可用画质",
@@ -77,38 +79,15 @@ def cmd_logout(_args: argparse.Namespace) -> None:
     print("已清除登录信息")
 
 
-def cmd_download(args: argparse.Namespace) -> None:
-    if not ffmpeg_available():
-        raise SystemExit("未检测到 ffmpeg，请先安装 ffmpeg 并加入 PATH")
-
-    bvid = extract_bvid(args.bvid)
-    cookies = config.load_cookies()
-    api = BilibiliAPI(cookies=cookies)
-
-    print(f"正在获取视频信息: {bvid}")
-    try:
-        info = api.get_video_info(bvid)
-    except BilibiliAPIError as e:
-        raise SystemExit(str(e))
-
+def download_page(api: BilibiliAPI, bvid: str, info: dict, page_num: int, args: argparse.Namespace, output_dir: Path) -> Path:
+    """Downloads a single page (分P) of a video, returns the output file path."""
     pages = info["pages"]
-    if args.page < 1 or args.page > len(pages):
-        raise SystemExit(f"该视频共 {len(pages)} P，-p 需在 1~{len(pages)} 之间")
-    part = pages[args.page - 1]
-    title = info["title"] if len(pages) == 1 else f"{info['title']}_P{args.page}_{part['part']}"
+    part = pages[page_num - 1]
+    title = info["title"] if len(pages) == 1 else f"{info['title']}_P{page_num}_{part['part']}"
     safe_title = sanitize_filename(title)
 
     print(f"正在解析播放地址: {safe_title}")
-    try:
-        streams = api.get_play_streams(bvid, part["cid"])
-    except BilibiliAPIError as e:
-        raise SystemExit(str(e))
-
-    if not cookies:
-        print("提示：当前未登录，画质可能被限制在 480P 左右。运行 'bilibili-extractor login' 可解锁更高画质。")
-
-    output_dir = Path(args.output)
-    output_dir.mkdir(parents=True, exist_ok=True)
+    streams = api.get_play_streams(bvid, part["cid"])
 
     with tempfile.TemporaryDirectory() as tmp:
         tmp_dir = Path(tmp)
@@ -144,6 +123,53 @@ def cmd_download(args: argparse.Namespace) -> None:
             remux(audio_path, dest)
         else:
             raise SystemExit("没有需要下载的内容")
+
+    return dest
+
+
+def cmd_download(args: argparse.Namespace) -> None:
+    if not ffmpeg_available():
+        raise SystemExit("未检测到 ffmpeg，请先安装 ffmpeg 并加入 PATH")
+
+    bvid = extract_bvid(args.bvid)
+    cookies = config.load_cookies()
+    api = BilibiliAPI(cookies=cookies)
+
+    print(f"正在获取视频信息: {bvid}")
+    try:
+        info = api.get_video_info(bvid)
+    except BilibiliAPIError as e:
+        raise SystemExit(str(e))
+
+    pages = info["pages"]
+    if not cookies:
+        print("提示：当前未登录，画质可能被限制在 480P 左右。运行 'bilibili-extractor login' 可解锁更高画质。")
+
+    output_dir = Path(args.output)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    if args.all_pages:
+        print(f"该视频共 {len(pages)} P，将全部下载")
+        failed = []
+        for page_num in range(1, len(pages) + 1):
+            print(f"\n[{page_num}/{len(pages)}] {pages[page_num - 1]['part']}")
+            try:
+                dest = download_page(api, bvid, info, page_num, args, output_dir)
+                print(f"完成: {dest}")
+            except (BilibiliAPIError, SystemExit) as e:
+                print(f"第 {page_num} P 下载失败: {e}")
+                failed.append(page_num)
+        if failed:
+            raise SystemExit(f"\n共 {len(failed)} P 下载失败: {failed}")
+        return
+
+    if args.page < 1 or args.page > len(pages):
+        raise SystemExit(f"该视频共 {len(pages)} P，-p 需在 1~{len(pages)} 之间")
+
+    try:
+        dest = download_page(api, bvid, info, args.page, args, output_dir)
+    except BilibiliAPIError as e:
+        raise SystemExit(str(e))
 
     print(f"完成: {dest}")
 

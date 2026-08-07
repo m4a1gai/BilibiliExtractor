@@ -51,6 +51,9 @@ bilibili-extractor download BV13J3R6MEkE -q 80
 
 # 多P视频，指定第几P（默认第1P）
 bilibili-extractor download BV13J3R6MEkE -p 2
+
+# 批量下载多P视频的所有分P
+bilibili-extractor download BV13J3R6MEkE -a
 ```
 
 `bvid` 参数既可以是纯 BV 号，也可以是包含 BV 号的完整视频链接。

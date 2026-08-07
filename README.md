@@ -56,6 +56,18 @@ bilibili-extractor download BV13J3R6MEkE -p 2
 bilibili-extractor download BV13J3R6MEkE -a
 ```
 
+### 音质说明
+
+音频优先级：**Hi-Res 无损（FLAC）> 192K AAC > 132K > 64K**。
+
+- 普通账号 / 未开通 Hi-Res 无损包：最高只能拿到 192K AAC（输出 `.m4a`），这是
+  B 站常规音轨的上限，`.m4a` 只是容器，不代表"最高音质"。
+- 大会员且开通了 Hi-Res 无损包：工具会自动识别并优先下载无损 FLAC 音轨
+  （输出 `.flac`；若同时下载视频，容器会自动改为 `.mkv`，因为 MP4 不支持
+  封装 FLAC 音轨）。
+- 具体某个视频是否提供 Hi-Res 音源取决于 UP 主上传时提供的源文件，并非所有
+  视频都有。
+
 `bvid` 参数既可以是纯 BV 号，也可以是包含 BV 号的完整视频链接。
 
 ## 已知限制

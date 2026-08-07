@@ -5,3 +5,12 @@ __pycache__/
 build/
 dist/
 .idea/workspace.xml
+.DS_Store
+
+# downloaded media should never be committed
+output/
+*.m4a
+*.mp4
+*.mkv
+*.flac
+*.m4s

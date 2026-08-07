@@ -27,6 +27,14 @@ QUALITY_NAMES = {
     16: "360P",
 }
 
+AUDIO_QUALITY_NAMES = {
+    30251: "Hi-Res无损",
+    30250: "杜比全景声",
+    30280: "192K",
+    30232: "132K",
+    30216: "64K",
+}
+
 
 class BilibiliAPIError(RuntimeError):
     pass
@@ -108,9 +116,16 @@ class BilibiliAPI:
             )
         videos = sorted(dash["video"], key=lambda v: v["id"], reverse=True)
         audios = sorted(dash.get("audio") or [], key=lambda a: a["id"], reverse=True)
+        # Hi-Res lossless (FLAC) and Dolby Atmos are only present here, not
+        # mixed into dash["audio"], and only when the account is entitled.
+        flac = dash.get("flac") or {}
+        hires_audio = flac.get("audio")
+        dolby_audios = (dash.get("dolby") or {}).get("audio") or []
         return {
             "accept_quality": data.get("accept_description", []),
             "videos": videos,
             "audios": audios,
+            "hires_audio": hires_audio,
+            "dolby_audio": dolby_audios[0] if dolby_audios else None,
             "referer": referer,
         }

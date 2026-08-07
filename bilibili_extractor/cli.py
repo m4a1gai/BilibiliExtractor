@@ -7,7 +7,7 @@ import tempfile
 from pathlib import Path
 
 from . import config
-from .api import BilibiliAPI, BilibiliAPIError, QUALITY_NAMES
+from .api import AUDIO_QUALITY_NAMES, BilibiliAPI, BilibiliAPIError, QUALITY_NAMES
 from .downloader import download_stream
 from .login import qr_login
 from .merger import ffmpeg_available, merge, remux
@@ -37,6 +37,21 @@ def pick_video(videos: list[dict], quality: int | None) -> dict:
             f"{[QUALITY_NAMES.get(q, q) for q in available]}"
         )
     return videos[0]
+
+
+def pick_audio(streams: dict) -> tuple[dict | None, str, str]:
+    """Prefers Hi-Res lossless (FLAC) over the best regular AAC track.
+
+    Hi-Res is a separate field in the API response and only ever present
+    if the logged-in account is entitled to it (大会员 + Hi-Res 无损包).
+    """
+    hires = streams.get("hires_audio")
+    if hires:
+        return hires, "flac", AUDIO_QUALITY_NAMES.get(hires["id"], str(hires["id"]))
+    if streams["audios"]:
+        audio = streams["audios"][0]
+        return audio, "m4a", AUDIO_QUALITY_NAMES.get(audio["id"], str(audio["id"]))
+    return None, "m4a", ""
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -102,24 +117,28 @@ def download_page(api: BilibiliAPI, bvid: str, info: dict, page_num: int, args: 
             video_path = tmp_dir / "video.m4s"
             download_stream(video["baseUrl"], referer, video_path, api.session, "视频")
 
+        audio_ext = "m4a"
         if not args.video_only:
-            if not streams["audios"]:
+            audio, audio_ext, audio_label = pick_audio(streams)
+            if audio is None:
                 if args.audio_only:
                     raise SystemExit("该视频没有可用的音频流")
             else:
-                audio = streams["audios"][0]
+                print(f"选择音质: {audio_label}")
                 audio_path = tmp_dir / "audio.m4s"
                 download_stream(audio["baseUrl"], referer, audio_path, api.session, "音频")
 
         if video_path and audio_path:
-            dest = output_dir / f"{safe_title}.mp4"
+            # MP4 can't carry a FLAC track; fall back to Matroska which copies any codec untouched.
+            container = "mkv" if audio_ext == "flac" else "mp4"
+            dest = output_dir / f"{safe_title}.{container}"
             print("正在合并音视频...")
             merge(video_path, audio_path, dest)
         elif video_path:
             dest = output_dir / f"{safe_title}.mp4"
             remux(video_path, dest)
         elif audio_path:
-            dest = output_dir / f"{safe_title}.m4a"
+            dest = output_dir / f"{safe_title}.{audio_ext}"
             remux(audio_path, dest)
         else:
             raise SystemExit("没有需要下载的内容")

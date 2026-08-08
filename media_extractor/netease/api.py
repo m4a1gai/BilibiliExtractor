@@ -72,9 +72,12 @@ class NeteaseAPI:
         )
         result = {}
         for song in data.get("songs", []):
+            album = song.get("al") or {}
             result[song["id"]] = {
                 "name": song["name"],
                 "artists": "/".join(a["name"] for a in song.get("ar", [])),
+                "album": album.get("name", ""),
+                "cover_url": album.get("picUrl", ""),
             }
         return result
 

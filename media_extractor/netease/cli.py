@@ -8,6 +8,7 @@ from ..common import config
 from ..common.downloader import download_stream
 from .api import QUALITY_NAMES, NeteaseAPI, NeteaseAPIError
 from .login import qr_login
+from .tagger import tag_file
 
 PLATFORM = "netease"
 QUALITY_CHOICES = list(QUALITY_NAMES.keys())
@@ -115,7 +116,8 @@ def cmd_logout(_args: argparse.Namespace) -> None:
 
 
 def download_song(api: NeteaseAPI, song_id: int, args: argparse.Namespace, output_dir: Path) -> Path:
-    detail = api.get_song_detail([song_id]).get(song_id, {"name": str(song_id), "artists": ""})
+    default_detail = {"name": str(song_id), "artists": "", "album": "", "cover_url": ""}
+    detail = api.get_song_detail([song_id]).get(song_id, default_detail)
     item, level = api.get_best_song_url(song_id, args.quality)
     ext = item.get("type") or "mp3"
     title = f"{detail['artists']} - {detail['name']}" if detail["artists"] else detail["name"]
@@ -124,6 +126,7 @@ def download_song(api: NeteaseAPI, song_id: int, args: argparse.Namespace, outpu
     print(f"选择音质: {QUALITY_NAMES.get(level, level)}")
     dest = output_dir / f"{safe_title}.{ext}"
     download_stream(item["url"], dest, api.session, safe_title)
+    tag_file(dest, detail["name"], detail["artists"], detail["album"], detail["cover_url"])
     return dest
 
 

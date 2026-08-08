@@ -2,16 +2,16 @@ from __future__ import annotations
 
 import argparse
 import re
-import sys
 import tempfile
 from pathlib import Path
 
-from . import config
+from ..common import config
+from ..common.downloader import download_stream
+from ..common.merger import ffmpeg_available, merge, remux
 from .api import AUDIO_QUALITY_NAMES, BilibiliAPI, BilibiliAPIError, QUALITY_NAMES
-from .downloader import download_stream
 from .login import qr_login
-from .merger import ffmpeg_available, merge, remux
 
+PLATFORM = "bilibili"
 BVID_RE = re.compile(r"(BV[0-9A-Za-z]{10})")
 
 
@@ -54,17 +54,16 @@ def pick_audio(streams: dict) -> tuple[dict | None, str, str]:
     return None, "m4a", ""
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="bilibili-extractor",
-        description="根据 BV 号提取 B 站视频/音频文件",
-    )
-    sub = parser.add_subparsers(dest="command", required=True)
+def add_subparser(top_sub: argparse._SubParsersAction) -> None:
+    parser = top_sub.add_parser("bilibili", help="B 站视频/音频提取")
+    sub = parser.add_subparsers(dest="bilibili_command", required=True)
 
     login_p = sub.add_parser("login", help="扫码登录并保存 Cookie（可获取更高画质）")
     login_p.add_argument("--timeout", type=int, default=180, help="扫码超时时间（秒）")
+    login_p.set_defaults(func=cmd_login)
 
     logout_p = sub.add_parser("logout", help="清除已保存的登录信息")
+    logout_p.set_defaults(func=cmd_logout)
 
     dl_p = sub.add_parser("download", help="下载指定 BV 号的视频/音频")
     dl_p.add_argument("bvid", help="BV 号，或包含 BV 号的完整视频链接")
@@ -79,6 +78,7 @@ def build_parser() -> argparse.ArgumentParser:
     mode = dl_p.add_mutually_exclusive_group()
     mode.add_argument("--audio-only", action="store_true", help="只提取音频（输出 m4a）")
     mode.add_argument("--video-only", action="store_true", help="只提取无声视频（输出 mp4）")
+    dl_p.set_defaults(func=cmd_download)
 
     batch_p = sub.add_parser("batch", help="从 txt 文件中提取所有 BV 号并批量下载")
     batch_p.add_argument("file", help="txt 文件路径，会自动提取文本中出现的所有 BV 号")
@@ -93,18 +93,17 @@ def build_parser() -> argparse.ArgumentParser:
     batch_mode = batch_p.add_mutually_exclusive_group()
     batch_mode.add_argument("--audio-only", action="store_true", help="只提取音频（输出 m4a）")
     batch_mode.add_argument("--video-only", action="store_true", help="只提取无声视频（输出 mp4）")
-
-    return parser
+    batch_p.set_defaults(func=cmd_batch)
 
 
 def cmd_login(args: argparse.Namespace) -> None:
     cookies = qr_login(timeout=args.timeout)
-    config.save_cookies(cookies)
-    print(f"已保存登录信息到 {config.COOKIE_FILE}")
+    config.save_cookies(PLATFORM, cookies)
+    print(f"已保存登录信息到 {config.cookie_file(PLATFORM)}")
 
 
 def cmd_logout(_args: argparse.Namespace) -> None:
-    config.clear_cookies()
+    config.clear_cookies(PLATFORM)
     print("已清除登录信息")
 
 
@@ -120,7 +119,7 @@ def download_page(api: BilibiliAPI, bvid: str, info: dict, page_num: int, args: 
 
     with tempfile.TemporaryDirectory() as tmp:
         tmp_dir = Path(tmp)
-        referer = streams["referer"]
+        referer_headers = {"Referer": streams["referer"]}
 
         video_path = None
         audio_path = None
@@ -129,7 +128,7 @@ def download_page(api: BilibiliAPI, bvid: str, info: dict, page_num: int, args: 
             video = pick_video(streams["videos"], args.quality)
             print(f"选择画质: {QUALITY_NAMES.get(video['id'], video['id'])}")
             video_path = tmp_dir / "video.m4s"
-            download_stream(video["baseUrl"], referer, video_path, api.session, "视频")
+            download_stream(video["baseUrl"], video_path, api.session, "视频", headers=referer_headers)
 
         audio_ext = "m4a"
         if not args.video_only:
@@ -140,7 +139,7 @@ def download_page(api: BilibiliAPI, bvid: str, info: dict, page_num: int, args: 
             else:
                 print(f"选择音质: {audio_label}")
                 audio_path = tmp_dir / "audio.m4s"
-                download_stream(audio["baseUrl"], referer, audio_path, api.session, "音频")
+                download_stream(audio["baseUrl"], audio_path, api.session, "音频", headers=referer_headers)
 
         if video_path and audio_path:
             # MP4 can't carry a FLAC track; fall back to Matroska which copies any codec untouched.
@@ -193,10 +192,10 @@ def cmd_download(args: argparse.Namespace) -> None:
         raise SystemExit("未检测到 ffmpeg，请先安装 ffmpeg 并加入 PATH")
 
     bvid = extract_bvid(args.bvid)
-    cookies = config.load_cookies()
+    cookies = config.load_cookies(PLATFORM)
     api = BilibiliAPI(cookies=cookies)
     if not cookies:
-        print("提示：当前未登录，画质可能被限制在 480P 左右。运行 'bilibili-extractor login' 可解锁更高画质。")
+        print("提示：当前未登录，画质可能被限制在 480P 左右。运行 'media-extractor bilibili login' 可解锁更高画质。")
 
     output_dir = Path(args.output)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -220,10 +219,10 @@ def cmd_batch(args: argparse.Namespace) -> None:
         raise SystemExit(f"在 {path} 中没有找到任何 BV 号")
     print(f"共找到 {len(bvids)} 个 BV 号")
 
-    cookies = config.load_cookies()
+    cookies = config.load_cookies(PLATFORM)
     api = BilibiliAPI(cookies=cookies)
     if not cookies:
-        print("提示：当前未登录，画质可能被限制在 480P 左右。运行 'bilibili-extractor login' 可解锁更高画质。")
+        print("提示：当前未登录，画质可能被限制在 480P 左右。运行 'media-extractor bilibili login' 可解锁更高画质。")
 
     output_dir = Path(args.output)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -239,24 +238,3 @@ def cmd_batch(args: argparse.Namespace) -> None:
 
     if failed:
         raise SystemExit(f"\n共 {len(failed)} 个视频下载失败: {failed}")
-
-
-def main(argv: list[str] | None = None) -> None:
-    parser = build_parser()
-    args = parser.parse_args(argv)
-    try:
-        if args.command == "login":
-            cmd_login(args)
-        elif args.command == "logout":
-            cmd_logout(args)
-        elif args.command == "download":
-            cmd_download(args)
-        elif args.command == "batch":
-            cmd_batch(args)
-    except KeyboardInterrupt:
-        print("\n已取消")
-        sys.exit(130)
-
-
-if __name__ == "__main__":
-    main()

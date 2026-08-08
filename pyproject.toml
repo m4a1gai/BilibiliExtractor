@@ -1,20 +1,21 @@
 [project]
-name = "bilibili-extractor"
-version = "0.1.0"
-description = "Extract video/audio streams from Bilibili by BV id"
+name = "media-extractor"
+version = "0.2.0"
+description = "Extract video/audio files from Bilibili and songs/playlists from NetEase Cloud Music"
 requires-python = ">=3.9"
 dependencies = [
     "requests>=2.31",
     "tqdm>=4.66",
     "qrcode>=7.4",
+    "pycryptodome>=3.20",
 ]
 
 [project.scripts]
-bilibili-extractor = "bilibili_extractor.cli:main"
+media-extractor = "media_extractor.cli:main"
 
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["bilibili_extractor"]
+packages = ["media_extractor", "media_extractor.common", "media_extractor.bilibili", "media_extractor.netease"]

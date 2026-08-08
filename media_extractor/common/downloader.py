@@ -1,4 +1,4 @@
-"""Streaming download of a single DASH stream with a progress bar."""
+"""Streaming download of a single remote file with a progress bar."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -6,11 +6,14 @@ from pathlib import Path
 import requests
 from tqdm import tqdm
 
-from .api import UA
 
-
-def download_stream(url: str, referer: str, dest: Path, session: requests.Session, desc: str) -> None:
-    headers = {"User-Agent": UA, "Referer": referer}
+def download_stream(
+    url: str,
+    dest: Path,
+    session: requests.Session,
+    desc: str,
+    headers: dict | None = None,
+) -> None:
     with session.get(url, headers=headers, stream=True, timeout=30) as resp:
         resp.raise_for_status()
         total = int(resp.headers.get("Content-Length", 0))

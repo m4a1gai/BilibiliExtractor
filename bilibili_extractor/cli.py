@@ -80,6 +80,20 @@ def build_parser() -> argparse.ArgumentParser:
     mode.add_argument("--audio-only", action="store_true", help="只提取音频（输出 m4a）")
     mode.add_argument("--video-only", action="store_true", help="只提取无声视频（输出 mp4）")
 
+    batch_p = sub.add_parser("batch", help="从 txt 文件中提取所有 BV 号并批量下载")
+    batch_p.add_argument("file", help="txt 文件路径，会自动提取文本中出现的所有 BV 号")
+    batch_p.add_argument("-o", "--output", default=".", help="输出目录，默认当前目录")
+    batch_page_group = batch_p.add_mutually_exclusive_group()
+    batch_page_group.add_argument("-p", "--page", type=int, default=1, help="每个视频下载第几P（从1开始），默认第1P")
+    batch_page_group.add_argument("-a", "--all-pages", action="store_true", help="每个视频下载所有分P")
+    batch_p.add_argument(
+        "-q", "--quality", type=int, default=None,
+        help="指定画质 qn 值（如 80=1080P，64=720P），默认自动选最高可用画质",
+    )
+    batch_mode = batch_p.add_mutually_exclusive_group()
+    batch_mode.add_argument("--audio-only", action="store_true", help="只提取音频（输出 m4a）")
+    batch_mode.add_argument("--video-only", action="store_true", help="只提取无声视频（输出 mp4）")
+
     return parser
 
 
@@ -146,26 +160,11 @@ def download_page(api: BilibiliAPI, bvid: str, info: dict, page_num: int, args: 
     return dest
 
 
-def cmd_download(args: argparse.Namespace) -> None:
-    if not ffmpeg_available():
-        raise SystemExit("未检测到 ffmpeg，请先安装 ffmpeg 并加入 PATH")
-
-    bvid = extract_bvid(args.bvid)
-    cookies = config.load_cookies()
-    api = BilibiliAPI(cookies=cookies)
-
+def process_video(api: BilibiliAPI, bvid: str, args: argparse.Namespace, output_dir: Path) -> None:
+    """Downloads one BV video according to args.page / args.all_pages."""
     print(f"正在获取视频信息: {bvid}")
-    try:
-        info = api.get_video_info(bvid)
-    except BilibiliAPIError as e:
-        raise SystemExit(str(e))
-
+    info = api.get_video_info(bvid)
     pages = info["pages"]
-    if not cookies:
-        print("提示：当前未登录，画质可能被限制在 480P 左右。运行 'bilibili-extractor login' 可解锁更高画质。")
-
-    output_dir = Path(args.output)
-    output_dir.mkdir(parents=True, exist_ok=True)
 
     if args.all_pages:
         print(f"该视频共 {len(pages)} P，将全部下载")
@@ -179,18 +178,67 @@ def cmd_download(args: argparse.Namespace) -> None:
                 print(f"第 {page_num} P 下载失败: {e}")
                 failed.append(page_num)
         if failed:
-            raise SystemExit(f"\n共 {len(failed)} P 下载失败: {failed}")
+            raise SystemExit(f"共 {len(failed)} P 下载失败: {failed}")
         return
 
     if args.page < 1 or args.page > len(pages):
         raise SystemExit(f"该视频共 {len(pages)} P，-p 需在 1~{len(pages)} 之间")
 
+    dest = download_page(api, bvid, info, args.page, args, output_dir)
+    print(f"完成: {dest}")
+
+
+def cmd_download(args: argparse.Namespace) -> None:
+    if not ffmpeg_available():
+        raise SystemExit("未检测到 ffmpeg，请先安装 ffmpeg 并加入 PATH")
+
+    bvid = extract_bvid(args.bvid)
+    cookies = config.load_cookies()
+    api = BilibiliAPI(cookies=cookies)
+    if not cookies:
+        print("提示：当前未登录，画质可能被限制在 480P 左右。运行 'bilibili-extractor login' 可解锁更高画质。")
+
+    output_dir = Path(args.output)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
     try:
-        dest = download_page(api, bvid, info, args.page, args, output_dir)
+        process_video(api, bvid, args, output_dir)
     except BilibiliAPIError as e:
         raise SystemExit(str(e))
 
-    print(f"完成: {dest}")
+
+def cmd_batch(args: argparse.Namespace) -> None:
+    if not ffmpeg_available():
+        raise SystemExit("未检测到 ffmpeg，请先安装 ffmpeg 并加入 PATH")
+
+    path = Path(args.file)
+    if not path.is_file():
+        raise SystemExit(f"文件不存在: {path}")
+    text = path.read_text(encoding="utf-8", errors="ignore")
+    bvids = list(dict.fromkeys(BVID_RE.findall(text)))  # dedupe, keep order
+    if not bvids:
+        raise SystemExit(f"在 {path} 中没有找到任何 BV 号")
+    print(f"共找到 {len(bvids)} 个 BV 号")
+
+    cookies = config.load_cookies()
+    api = BilibiliAPI(cookies=cookies)
+    if not cookies:
+        print("提示：当前未登录，画质可能被限制在 480P 左右。运行 'bilibili-extractor login' 可解锁更高画质。")
+
+    output_dir = Path(args.output)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    failed = []
+    for idx, bvid in enumerate(bvids, start=1):
+        print(f"\n=== [{idx}/{len(bvids)}] {bvid} ===")
+        try:
+            process_video(api, bvid, args, output_dir)
+        except (BilibiliAPIError, SystemExit) as e:
+            print(f"{bvid} 下载失败: {e}")
+            failed.append(bvid)
+
+    if failed:
+        raise SystemExit(f"\n共 {len(failed)} 个视频下载失败: {failed}")
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -203,6 +251,8 @@ def main(argv: list[str] | None = None) -> None:
             cmd_logout(args)
         elif args.command == "download":
             cmd_download(args)
+        elif args.command == "batch":
+            cmd_batch(args)
     except KeyboardInterrupt:
         print("\n已取消")
         sys.exit(130)

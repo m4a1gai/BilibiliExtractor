@@ -56,6 +56,21 @@ bilibili-extractor download BV13J3R6MEkE -p 2
 bilibili-extractor download BV13J3R6MEkE -a
 ```
 
+### 从 txt 文件批量下载
+
+`batch` 会读取整个文本文件，自动提取出所有出现过的 BV 号（纯号、完整视频链接、
+混在其他文字里都可以，重复的会自动去重），然后逐个下载。参数与 `download` 基本一致。
+
+```bash
+# list.txt 内容随意，每行一个 BV 号或视频链接均可
+bilibili-extractor batch list.txt -o ~/Downloads
+
+# 批量下载，只要音频，且每个视频的所有分P都要
+bilibili-extractor batch list.txt --audio-only -a
+```
+
+某个 BV 号下载失败不会中断其余任务，结束后会汇总列出失败的 BV 号。
+
 ### 音质说明
 
 音频优先级：**Hi-Res 无损（FLAC）> 192K AAC > 132K > 64K**。

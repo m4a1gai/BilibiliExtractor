@@ -26,6 +26,13 @@ SUCCESS = 803
 def qr_login(timeout: int = 180) -> dict:
     session = requests.Session()
     session.headers.update({"User-Agent": UA, "Referer": "https://music.163.com"})
+    # The web client always carries this cookie; without it the server
+    # sometimes accepts the scan but never flips the poll status past
+    # "scanned" because it doesn't recognize the session as a real browser.
+    session.cookies.set("os", "pc", domain="music.163.com")
+    # Seeds normal browser session cookies (JSESSIONID-WYYY etc.) that some
+    # risk-control checks on the confirm step expect to already be present.
+    session.get("https://music.163.com", timeout=10)
 
     resp = session.post(UNIKEY_URL, data=weapi({"type": 1}), timeout=10).json()
     if resp.get("code") != 200:
@@ -40,6 +47,7 @@ def qr_login(timeout: int = 180) -> dict:
     qr.print_ascii(invert=True)
 
     deadline = time.time() + timeout
+    last_code = None
     while time.time() < deadline:
         poll = session.post(
             POLL_URL, data=weapi({"type": 1, "key": unikey}), timeout=10
@@ -51,7 +59,13 @@ def qr_login(timeout: int = 180) -> dict:
             return cookies
         if code == EXPIRED:
             raise RuntimeError("二维码已过期，请重新运行登录命令")
-        if code == SCANNED_NOT_CONFIRMED:
-            print("已扫描，请在手机上确认登录...")
+        if code != last_code:
+            if code == WAITING:
+                print("等待扫码...")
+            elif code == SCANNED_NOT_CONFIRMED:
+                print("已扫描，请在手机上点击『确认登录』（不是扫描完就自动登录，需要手动点一下确认）...")
+            else:
+                print(f"未知状态: {poll}")
+            last_code = code
         time.sleep(2)
-    raise RuntimeError("登录超时")
+    raise RuntimeError("登录超时，若已在手机上确认过仍然超时，可能是该登录方式被网易云限制，请改用其他登录方式")

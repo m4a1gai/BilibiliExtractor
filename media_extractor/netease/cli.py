@@ -55,6 +55,10 @@ def add_subparser(top_sub: argparse._SubParsersAction) -> None:
 
     login_p = sub.add_parser("login", help="扫码登录并保存 Cookie（可获取无损/Hi-Res 音质）")
     login_p.add_argument("--timeout", type=int, default=180, help="扫码超时时间（秒）")
+    login_p.add_argument(
+        "--cookie", default=None,
+        help="手动粘贴已登录浏览器的 Cookie 字符串，跳过扫码（扫码遇到风控拦截时可用）",
+    )
     login_p.set_defaults(func=cmd_login)
 
     logout_p = sub.add_parser("logout", help="清除已保存的登录信息")
@@ -83,8 +87,24 @@ def add_subparser(top_sub: argparse._SubParsersAction) -> None:
     batch_p.set_defaults(func=cmd_batch)
 
 
+def parse_cookie_string(raw: str) -> dict:
+    cookies = {}
+    for part in raw.split(";"):
+        part = part.strip()
+        if not part or "=" not in part:
+            continue
+        key, value = part.split("=", 1)
+        cookies[key.strip()] = value.strip()
+    if "MUSIC_U" not in cookies:
+        raise SystemExit("Cookie 字符串里没有找到 MUSIC_U，请确认复制的是登录后浏览器里的完整 Cookie")
+    return cookies
+
+
 def cmd_login(args: argparse.Namespace) -> None:
-    cookies = qr_login(timeout=args.timeout)
+    if args.cookie:
+        cookies = parse_cookie_string(args.cookie)
+    else:
+        cookies = qr_login(timeout=args.timeout)
     config.save_cookies(PLATFORM, cookies)
     print(f"已保存登录信息到 {config.cookie_file(PLATFORM)}")
 

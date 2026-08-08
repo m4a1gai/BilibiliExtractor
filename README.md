@@ -87,6 +87,16 @@ media-extractor netease login
 media-extractor netease logout
 ```
 
+网易云对扫码登录接口有比较严格的风控，如果长时间卡在“已扫描，请在手机上点击
+『确认登录』”，多半是被判定为风险请求。这种情况下可以改用手动导入 Cookie：
+在浏览器里登录网页版 [music.163.com](https://music.163.com)，打开开发者工具的
+Network 面板，随便找一个 `music.163.com` 的请求，复制其请求头里完整的
+`Cookie` 字符串，然后：
+
+```bash
+media-extractor netease login --cookie "MUSIC_U=xxx; __csrf=xxx; ..."
+```
+
 ### 下载
 
 `target` 可以是歌曲/歌单的纯数字 ID，也可以是网易云音乐链接

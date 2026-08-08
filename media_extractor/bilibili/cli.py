@@ -8,6 +8,7 @@ from pathlib import Path
 from ..common import config
 from ..common.downloader import download_stream
 from ..common.merger import ffmpeg_available, merge, remux
+from ..common.tagger import embed_tags, fetch_cover
 from .api import AUDIO_QUALITY_NAMES, BilibiliAPI, BilibiliAPIError, QUALITY_NAMES
 from .login import qr_login
 
@@ -153,6 +154,9 @@ def download_page(api: BilibiliAPI, bvid: str, info: dict, page_num: int, args: 
         elif audio_path:
             dest = output_dir / f"{safe_title}.{audio_ext}"
             remux(audio_path, dest)
+            cover = fetch_cover(info.get("cover_url", ""), headers=referer_headers)
+            if cover:
+                embed_tags(dest, cover=cover)
         else:
             raise SystemExit("没有需要下载的内容")
 

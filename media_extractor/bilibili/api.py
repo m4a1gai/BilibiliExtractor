@@ -84,6 +84,7 @@ class BilibiliAPI:
             "bvid": data["bvid"],
             "aid": data["aid"],
             "title": data["title"],
+            "cover_url": data.get("pic", ""),
             "pages": [
                 {"cid": p["cid"], "page": p["page"], "part": p["part"]}
                 for p in data["pages"]
